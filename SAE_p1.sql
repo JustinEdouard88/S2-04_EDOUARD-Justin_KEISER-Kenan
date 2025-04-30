@@ -55,3 +55,37 @@ alter table s_detaillocation add foreign key(idMateriel) references s_materiel(i
 alter table s_participation add primary key(numActivite, codeMembre);
 alter table s_participation add foreign key(numActivite) references s_activite(numActivite);
 alter table s_participation add foreign key(codeMembre) references s_membre(codeMembre);
+
+
+//3. [PL/SQL] La colonne REDUCTION de la table S_LOCATION est à NULL. Une mauvaise
+//manipulation a effacé ces données. Ecrire une procédure stockée MAJ_REDUCTION
+//avec un curseur de mise à jour permettant d’indiquer le montant de la réduction (0 ou
+//0.10) en vérifiant que le membre avait une adhésion en cours de validité au moment
+//de la location.
+Create or Replace procedure reducLocation
+is
+    cursor estAdherent is select DATELOC, CODEMEMBRE from S_LOCATION;
+    locDate DATE;
+    membreC VARCHAR2(10);
+    dateDeb DATE;
+    dateFin DATE;
+    cursor dateAdherent is select DATEDEBADHESION, DATEFINADHESION from S_ADHESION where S_ADHESION.CODEMEMBRE = membreC ;
+begin
+    open estAdherent;
+    fetch estAdherent into locDate, membreC;
+    while estAdherent%FOUND LOOP
+        SELECT DATEDEBADHESION, DATEFINADHESION into dateDeb, dateFin from S_ADHESION where S_ADHESION.CODEMEMBRE = 'MEM001' AND TO_DATE('02/01/23', 'DD/MM/YY') < DATEFINADHESION AND TO_DATE('02/01/23', 'DD/MM/YY') > DATEDEBADHESION;
+        if locDate < dateFin and locDate > dateDeb then
+            update S_LOCATION set REDUCTION = 0.1 where CODEMEMBRE = membreC and DATELOC = locDate;
+        else
+            update S_LOCATION set REDUCTION = 0 where CODEMEMBRE = membreC and DATELOC = locDate;
+        end if;
+        fetch estAdherent into locDate, membreC;
+    END LOOP;
+    close estAdherent;
+end;
+
+declare
+begin
+reducLocation;
+end;
