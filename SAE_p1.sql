@@ -56,12 +56,12 @@ alter table s_participation add primary key(numActivite, codeMembre);
 alter table s_participation add foreign key(numActivite) references s_activite(numActivite);
 alter table s_participation add foreign key(codeMembre) references s_membre(codeMembre);
 
+//3. [PL/SQL] La colonne REDUCTION de la table S_LOCATION est à NULL. Une mauvaise
+//manipulation a effacé ces données. Ecrire une procédure stockée MAJ_REDUCTION
+//avec un curseur de mise à jour permettant d’indiquer le montant de la réduction (0 ou
+//0.10) en vérifiant que le membre avait une adhésion en cours de validité au moment
+//de la location. 
 
-//3. [PL/SQL] La colonne REDUCTION de la table S_LOCATION est � NULL. Une mauvaise
-//manipulation a effac� ces donn�es. Ecrire une proc�dure stock�e MAJ_REDUCTION
-//avec un curseur de mise � jour permettant d�indiquer le montant de la r�duction (0 ou
-//0.10) en v�rifiant que le membre avait une adh�sion en cours de validit� au moment
-//de la location.
 Create or Replace procedure reducLocation
 is
     cursor estAdherent is select DATELOC, CODEMEMBRE from S_LOCATION;
@@ -91,3 +91,202 @@ declare
 begin
 reducLocation;
 end;
+
+//4. [SQL] Afficher le nom et la quantité du matériel le plus loué en 2023.
+
+SELECT nomMateriel, SUM(qte) as quantite FROM s_materiel
+INNER JOIN s_detaillocation ON s_materiel.idMateriel = s_detaillocation.idMateriel
+INNER JOIN s_location ON s_detaillocation.numLoc = s_location.numLoc
+WHERE SUBSTR(TO_DATE(dateLoc), 7, 8) = '23'
+GROUP BY nomMateriel
+HAVING SUM(qte) = (
+    SELECT MAX(quantitef) FROM (
+        SELECT SUM(qte) AS quantitef
+        FROM s_detaillocation
+        INNER JOIN s_location ON s_detaillocation.numLoc = s_location.numLoc
+        WHERE SUBSTR(TO_DATE(dateLoc), 7, 8) = '23'
+        GROUP BY idMateriel
+    )
+);
+
+//5. [SQL] Afficher le nombre de locations par type de matériel (libellé).
+
+SELECT SUM(numLoc), libelleType
+FROM s_detaillocation
+INNER JOIN s_materiel ON s_detaillocation.idMateriel = s_materiel.idMateriel
+INNER JOIN s_typemateriel ON s_materiel.codeType = s_typemateriel.codeType
+GROUP BY libelleType;
+
+//6. [SQL] Créer une vue S_MontantLocation affichant pour chaque location : son
+//numéro, le montant avant réduction, la réduction, le montant total après réduction.
+//Utiliser cette vue pour afficher les montants de la location numéro 28.
+
+CREATE OR REPLACE VIEW S_MontantLocation AS
+    SELECT s_location.numLoc, tarifLocation, reduction, (tarifLocation-tarifLocation*reduction) as tarifLocationApresReduc FROM s_location
+    INNER JOIN s_detaillocation ON s_location.numLoc = s_detaillocation.numLoc
+    INNER JOIN s_materiel ON s_detaillocation.idMateriel = s_materiel.idMateriel
+    GROUP BY s_location.numLoc, tarifLocation, reduction;
+
+//7. [PL/SQL] Écrire une fonction stockée estEligibleReduction qui prend en paramètre un
+//code membre (codeMembre) et une date (p_date), et retourne 0.10 (10 %) si le
+//membre a une adhésion en cours de validité à cette date, 0 sinon.
+//A l’aide d’une requête SQL, afficher les membres éligibles à une réduction à la date
+//du 1/05/2024. 
+
+CREATE OR REPLACE FUNCTION estEligibleReduction(p_codeMembre VARCHAR2, p_date DATE) RETURN NUMBER 
+IS
+    Reduc NUMBER := 0;
+    Dateannule DATE;
+BEGIN
+    SELECT dateAnnul into Dateannule FROM s_adhesion
+    WHERE codeMembre = p_codeMembre AND dateDebAdhesion<p_date AND p_date<dateFinAdhesion;
+    IF Dateannule IS NULL OR p_date < Dateannule THEN
+        Reduc := 0.10;
+    END IF;
+    
+    RETURN Reduc;
+
+END estEligibleReduction;
+
+SELECT nom, prenom FROM s_membre
+WHERE estEligibleReduction(codeMembre,TO_DATE('01/05/24', 'DD/MM/YY')) = 0.10;
+
+//8. [PL/SQL] Écrire une procédure stockée annulerAdhesion qui prend en paramètre un
+//numéro d’adhésion (numAdhesion) et une date d’annulation (dateAnnul), met à jour
+//le statut à 'annulé' et remplit la date d’annulation si l’adhésion est active et que la
+//date est valide (postérieure à dateDebAdhesion et antérieure à dateFinAdhesion).
+//La procédure renvoie dans un paramètre de sortie p_error, le type d’erreur
+//rencontrée :
+//1 : adhésion inexistante
+//2 : conditions d’annulation non valides
+//3 : toute autre erreur.
+//Utiliser une exception utilisateur pour traiter le cas des conditions d’annulation
+//invalides.
+//Si pas d’erreur, p_error est à 0. 
+
+CREATE OR REPLACE PROCEDURE annulerAdhesion(p_numAdhesion VARCHAR2, p_dateAnnul DATE, p_error out NUMBER)
+IS
+    dateDebut DATE;
+    dateFin DATE;
+    Statut VARCHAR2(30);
+    ErrorAnnulation EXCEPTION;
+BEGIN
+    p_error := 0;
+    SELECT dateDebAdhesion, dateFinAdhesion, statutAdhesion INTO dateDebut, dateFin, Statut FROM s_adhesion
+    WHERE numAdhesion = p_numAdhesion;
+
+    IF dateDebut<p_dateAnnul AND p_dateAnnul<dateFin AND Statut = 'actif' THEN
+        UPDATE s_adhesion SET statutAdhesion = 'annulé', dateAnnul = p_dateAnnul WHERE numAdhesion = p_numAdhesion;
+    ELSE
+        RAISE ErrorAnnulation;
+    END IF;
+
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            p_error := 1;
+        WHEN ErrorAnnulation THEN
+            p_error := 2;
+        WHEN OTHERS THEN
+            p_error := 3;
+END annulerAdhesion;
+
+DECLARE
+    p_error NUMBER;
+BEGIN
+    annulerAdhesion('ADH015', TO_DATE('01/06/24', 'DD/MM/YY'), p_error);
+    DBMS_OUTPUT.PUT_LINE(p_error);
+END;
+
+DECLARE
+    p_error NUMBER;
+BEGIN
+    annulerAdhesion('ADH126', TO_DATE('01/06/24', 'DD/MM/YY'), p_error);
+    DBMS_OUTPUT.PUT_LINE(p_error);
+END;
+
+DECLARE
+    p_error NUMBER;
+BEGIN
+    annulerAdhesion('ADH015', TO_DATE('01/06/27', 'DD/MM/YY'), p_error);
+    DBMS_OUTPUT.PUT_LINE(p_error);
+END;
+    
+//9. [PL/SQL] Écrire une procédure stockée inscrireActivite qui prend en paramètre un
+//numéro d’activité (numActivite), un code membre (codeMembre), et une date
+//d’inscription (dateInscription), et ajoute une participation si la capacité n’est pas
+//dépassée et que le membre n’est pas déjà inscrit. Effectuer les vérifications
+//nécessaires sur l’existence de l’activité, du membre concerné, l’inscription déjà
+//existante. Renvoyer dans un paramètre de sortie p_error un code spécifique (ex.
+//p_error vaut 1 si membre inexistant, 2 si activité inexistante, 3 déjà inscrit, 4 capacité
+//dépassée…). Tester tous les cas.nd
+
+//10. [SQL] La table S_LOCATION est complétée par une liste de location. Réaliser les
+//insertions à partir du fichier insertComplementLocation.
+
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (51, 'MEM012', TO_DATE('01/05/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (52, 'MEM013', TO_DATE('01/06/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (53, 'MEM014', TO_DATE('01/07/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (54, 'MEM015', TO_DATE('01/08/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (55, 'MEM009', TO_DATE('01/09/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA6');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (56, 'MEM010', TO_DATE('01/10/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA7');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (57, 'MEM011', TO_DATE('01/11/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA8');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (58, 'MEM012', TO_DATE('01/12/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (59, 'MEM013', TO_DATE('01/01/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA9');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (60, 'MEM014', TO_DATE('20/07/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA10');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (61, 'MEM015', TO_DATE('25/08/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA1');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (62, 'MEM001', TO_DATE('30/09/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (63, 'MEM002', TO_DATE('05/10/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (64, 'MEM003', TO_DATE('10/11/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (65, 'MEM004', TO_DATE('15/12/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA1');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (66, 'MEM005', TO_DATE('20/01/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (67, 'MEM006', TO_DATE('25/02/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (68, 'MEM007', TO_DATE('30/03/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (69, 'MEM008', TO_DATE('05/04/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (70, 'MEM009', TO_DATE('10/05/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA6');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (71, 'MEM010', TO_DATE('15/06/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA7');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (72, 'MEM011', TO_DATE('01/09/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA8');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (73, 'MEM012', TO_DATE('01/10/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA9');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (74, 'MEM006', TO_DATE('01/11/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA7');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (75, 'MEM007', TO_DATE('01/12/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA8');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (76, 'MEM008', TO_DATE('01/01/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA9');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (77, 'MEM009', TO_DATE('01/02/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA10');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (78, 'MEM010', TO_DATE('01/03/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA1');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (79, 'MEM011', TO_DATE('01/04/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (80, 'MEM012', TO_DATE('01/05/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (81, 'MEM013', TO_DATE('01/06/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (82, 'MEM014', TO_DATE('01/07/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (83, 'MEM015', TO_DATE('01/08/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (84, 'MEM013', TO_DATE('01/09/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA6');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (85, 'MEM006', TO_DATE('01/12/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA7');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (86, 'MEM007', TO_DATE('01/01/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA8');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (87, 'MEM008', TO_DATE('20/07/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (88, 'MEM009', TO_DATE('25/08/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA9');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (89, 'MEM010', TO_DATE('30/09/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA10');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (90, 'MEM011', TO_DATE('05/10/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA10');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (91, 'MEM012', TO_DATE('10/11/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA8');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (92, 'MEM013', TO_DATE('15/12/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA1');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (93, 'MEM014', TO_DATE('20/01/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (94, 'MEM015', TO_DATE('25/02/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (95, 'MEM006', TO_DATE('30/03/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (96, 'MEM007', TO_DATE('05/04/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (97, 'MEM008', TO_DATE('10/05/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA2');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (98, 'MEM009', TO_DATE('15/06/2024', 'DD/MM/YYYY'), 0, 'terminée', 'SA3');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (99, 'MEM010', TO_DATE('01/09/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA4');
+INSERT INTO S_LOCATION (numLoc, codeMembre, dateLoc, reduction, statut, numClub) VALUES (100, 'MEM011', TO_DATE('01/10/2023', 'DD/MM/YYYY'), 0, 'terminée', 'SA5');
+
+//11. [SQL] Afficher le nombre total de locations par club en 2023.
+//Répéter l’opération pour 2024.
+
+SELECT SUM(numLoc), nomClub FROM s_location
+INNER JOIN s_club ON s_location.numClub = s_club.numClub
+WHERE SUBSTR(TO_DATE(dateLoc), 7, 8) = '24'
+GROUP BY nomClub;
+
+//12. [SQL] Afficher le nombre de membres par club trié par ville (ville, nomclub et
+//nombre)
+
+SELECT nomClub, ville, COUNT(DISTINCT(s_adhesion.codeMembre)) as nombre FROM s_club
+INNER JOIN s_location ON s_club.numClub = s_location.numClub
+INNER JOIN s_adhesion ON s_location.codeMembre = s_adhesion.codeMembre
+GROUP BY nomClub
+ORDER BY ville ASC;
