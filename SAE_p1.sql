@@ -69,17 +69,19 @@ is
     membreC VARCHAR2(10);
     dateDeb DATE;
     dateFin DATE;
-    cursor dateAdherent is select DATEDEBADHESION, DATEFINADHESION from S_ADHESION where S_ADHESION.CODEMEMBRE = membreC ;
 begin
     open estAdherent;
     fetch estAdherent into locDate, membreC;
     while estAdherent%FOUND LOOP
-        SELECT DATEDEBADHESION, DATEFINADHESION into dateDeb, dateFin from S_ADHESION where S_ADHESION.CODEMEMBRE = 'MEM001' AND TO_DATE('02/01/23', 'DD/MM/YY') < DATEFINADHESION AND TO_DATE('02/01/23', 'DD/MM/YY') > DATEDEBADHESION;
-        if locDate < dateFin and locDate > dateDeb then
+        Begin
+        SELECT DATEDEBADHESION, DATEFINADHESION into dateDeb, dateFin from S_ADHESION where S_ADHESION.CODEMEMBRE = membreC AND locDate between DATEDEBADHESION AND DATEFINADHESION AND ROWNUM = 1;
             update S_LOCATION set REDUCTION = 0.1 where CODEMEMBRE = membreC and DATELOC = locDate;
-        else
-            update S_LOCATION set REDUCTION = 0 where CODEMEMBRE = membreC and DATELOC = locDate;
-        end if;
+        Exception
+            when NO_DATA_FOUND THEN
+            UPDATE S_LOCATION
+            SET REDUCTION = 0
+            WHERE CODEMEMBRE = membreC AND DATELOC = locDate;
+        End;
         fetch estAdherent into locDate, membreC;
     END LOOP;
     close estAdherent;
