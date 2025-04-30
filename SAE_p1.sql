@@ -219,6 +219,7 @@ END;
 //existante. Renvoyer dans un paramètre de sortie p_error un code spécifique (ex.
 //p_error vaut 1 si membre inexistant, 2 si activité inexistante, 3 déjà inscrit, 4 capacité
 //dépassée…). Tester tous les cas.nd
+
 create or replace procedure inscrireActivite(numA varchar2, codeM varchar2, dateI date,p_error out number)
 is
     ActiviteC number;
@@ -349,5 +350,50 @@ GROUP BY nomClub;
 SELECT nomClub, ville, COUNT(DISTINCT(s_adhesion.codeMembre)) as nombre FROM s_club
 INNER JOIN s_location ON s_club.numClub = s_location.numClub
 INNER JOIN s_adhesion ON s_location.codeMembre = s_adhesion.codeMembre
-GROUP BY nomClub
-ORDER BY ville ASC;
+GROUP BY nomClub, ville
+ORDER BY ville;
+
+//13. [PL/SQL] Écrire un bloc PL/SQL affichant les détails d’une location (matériel, prix de
+//location, quantité) à partir de son numéro saisi au clavier. Gérer le cas où la location
+//n’existe pas. Afficher le total avant et après réduction.
+
+//14. [PL/SQL] Écrire un bloc PL/SQL affichant le catalogue de matériel par type avec :
+//o Type de matériel
+//o Nom du matériel, prix neuf, année de fabrication, total des locations
+
+DECLARE
+
+    CURSOR TypeL IS
+        SELECT libelleType FROM s_typemateriel;
+
+    CURSOR TypeL_info(p_libel VARCHAR2) IS
+        SELECT nomMateriel, tarifLocation, anneeFabrication, COUNT(qte) as total FROM s_typemateriel
+        INNER JOIN s_materiel ON s_typemateriel.codeType = s_materiel.codeType
+        INNER JOIN s_detaillocation ON s_materiel.idMateriel = s_detaillocation.idMateriel
+        WHERE libelleType = p_libel
+        GROUP BY nomMateriel, tarifLocation, anneeFabrication;
+BEGIN
+
+    dbms_output.put_line('CATALOGUE DE MATERIEL PAR TYPE');
+    dbms_output.put_line('================================');
+
+    FOR TypeLloop IN TypeL LOOP
+        dbms_output.put_line('');
+        dbms_output.put_line('TYPE: ' || TypeLloop.libelleType);
+        dbms_output.put_line('--------------------------------');
+        dbms_output.put_line('Nom du matériel | Prix | Année | Nombre de locations');
+        dbms_output.put_line('-------------------------- | ------- | --------- | -------------------');
+        FOR TypeL_infoloop IN TypeL_info(TypeLloop.libelleType) LOOP
+            dbms_output.put_line(TypeL_infoloop.nomMateriel || ' | ' || TypeL_infoloop.tarifLocation || ' | ' || TypeL_infoloop.anneeFabrication || ' | ' || TypeL_infoloop.total);
+        END LOOP;
+    END LOOP;
+END;
+
+//15. [PL/SQL] Écrire un bloc PL/SQL qui pour un numéro de club et une année donnés affiche
+//pour ce club :
+//- le nombre total d'activités organisées dans l'année
+//- la capacité totale
+//- le taux de remplissage moyen des activités (pourcentage de participants par rapport à la
+//capacité).
+//- le nombre de participants
+//- le nombre de membres distincts ayant participé à au moins une activité.
