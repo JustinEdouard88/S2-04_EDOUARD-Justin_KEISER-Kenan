@@ -356,6 +356,53 @@ ORDER BY ville;
 //13. [PL/SQL] Écrire un bloc PL/SQL affichant les détails d’une location (matériel, prix de
 //location, quantité) à partir de son numéro saisi au clavier. Gérer le cas où la location
 //n’existe pas. Afficher le total avant et après réduction.
+declare
+num number;
+code varchar2(10);
+dateL date;
+status varchar2(20);
+club varchar2(20);
+reduc number;
+quantite number;
+chose varchar2(20);
+nom varchar2(50);
+prix number;
+total number;
+cursor materiel is select IDMATERIEL,QTE FROM S_DETAILLOCATION where NUMLOC = num;
+begin
+total := 0;
+num := &location;
+select CODEMEMBRE, DATELOC, STATUT, NUMCLUB, REDUCTION into code, dateL, status, club, reduc from S_LOCATION WHERE NUMLOC = num;
+DBMS_OUTPUT.PUT_LINE('Détails de la location numéro ' || num); 
+DBMS_OUTPUT.PUT_LINE('--------------------------------');
+DBMS_OUTPUT.PUT_LINE('Code Membre : ' || code);
+DBMS_OUTPUT.PUT_LINE('Date de location : ' || dateL);
+DBMS_OUTPUT.PUT_LINE('Statut : ' || status);
+DBMS_OUTPUT.PUT_LINE('Club : ' || club);
+DBMS_OUTPUT.PUT_LINE('Reduction : ' || (reduc*10)|| '%');
+DBMS_OUTPUT.PUT_LINE('--------------------------------');
+DBMS_OUTPUT.PUT_LINE('Matériel loué :');
+DBMS_OUTPUT.PUT_LINE('--------------------------------');
+DBMS_OUTPUT.PUT_LINE('Nom du matériel | Prix unitaire | Quantité | Sous-total');
+DBMS_OUTPUT.PUT_LINE('--------------------------------');
+open materiel;
+fetch materiel into chose, quantite;
+while materiel%found loop
+    select TARIFLOCATION, NOMMATERIEL into prix, nom from S_MATERIEL WHERE IDMATERIEL = chose;
+    DBMS_OUTPUT.PUT_LINE(nom || '|' || prix || '|' || quantite || '|' || (prix*quantite));
+    total := total + (prix*quantite);
+    fetch materiel into chose, quantite;
+end loop;
+close materiel;
+DBMS_OUTPUT.PUT_LINE('--------------------------------');
+DBMS_OUTPUT.PUT_LINE('Total avant réduction : ' || total);
+DBMS_OUTPUT.PUT_LINE('Montant de la réduction : ' || reduc);
+DBMS_OUTPUT.PUT_LINE('Total après réduction : ' || (total - (total * reduc)));
+
+exception
+    when NO_DATA_FOUND then
+       DBMS_OUTPUT.PUT_LINE('Pas de location au numero ' || num); 
+end;
 
 //14. [PL/SQL] Écrire un bloc PL/SQL affichant le catalogue de matériel par type avec :
 //o Type de matériel
