@@ -127,6 +127,9 @@ CREATE OR REPLACE VIEW S_MontantLocation AS
     INNER JOIN s_materiel ON s_detaillocation.idMateriel = s_materiel.idMateriel
     GROUP BY s_location.numLoc, tarifLocation, reduction;
 
+SELECT * FROM S_MontantLocation
+WHERE numLoc = 28;
+
 //7. [PL/SQL] Écrire une fonction stockée estEligibleReduction qui prend en paramètre un
 //code membre (codeMembre) et une date (p_date), et retourne 0.10 (10 %) si le
 //membre a une adhésion en cours de validité à cette date, 0 sinon.
@@ -356,6 +359,7 @@ ORDER BY ville;
 //13. [PL/SQL] Écrire un bloc PL/SQL affichant les détails d’une location (matériel, prix de
 //location, quantité) à partir de son numéro saisi au clavier. Gérer le cas où la location
 //n’existe pas. Afficher le total avant et après réduction.
+
 declare
 num number;
 code varchar2(10);
@@ -404,6 +408,7 @@ exception
        DBMS_OUTPUT.PUT_LINE('Pas de location au numero ' || num); 
 end;
 
+
 //14. [PL/SQL] Écrire un bloc PL/SQL affichant le catalogue de matériel par type avec :
 //o Type de matériel
 //o Nom du matériel, prix neuf, année de fabrication, total des locations
@@ -444,3 +449,33 @@ END;
 //capacité).
 //- le nombre de participants
 //- le nombre de membres distincts ayant participé à au moins une activité.
+
+DECLARE
+    nClub VARCHAR2(3);
+    Ann NUMBER;
+    numactT NUMBER;
+    capaT NUMBER;
+    tauxM NUMBER;
+    nbPartici NUMBER;
+    nbDist NUMBER;
+BEGIN
+    nClub := &numClub;
+    Ann := &Annee;
+
+
+    SELECT SUM(capacite) INTO capaT FROM s_activite
+    WHERE numClub = nClub AND SUBSTR(dateActivite, 7, 8) = SUBSTR(Ann, 3, 4);
+
+    SELECT COUNT(DISTINCT(s_participation.numActivite)), (COUNT(codeMembre)/capaT), COUNT(codeMembre), COUNT(DISTINCT(codeMembre)) INTO numactT, tauxM, nbPartici, nbDist FROM s_club
+    INNER JOIN s_activite ON s_club.numClub = s_activite.numClub
+    INNER JOIN s_participation ON s_activite.numActivite = s_participation.numActivite
+    WHERE s_club.numClub = nClub AND SUBSTR(dateActivite, 7, 8) = SUBSTR(Ann, 3, 4);
+
+    dbms_output.put_line('Statistiques pour le club ' || nClub || ' en ' || Ann);
+    dbms_output.put_line('------------------------------------------');
+    dbms_output.put_line('Nombre total dactivités organisées : ' || numactT);
+    dbms_output.put_line('Capacité totale : ' || capaT);
+    dbms_output.put_line('Taux de remplissage moyen : ' || tauxM*100 || '%');
+    dbms_output.put_line('Nombre total de participants : ' || nbPartici);
+    dbms_output.put_line('Nombre de membres distincts participants : ' || nbDist);
+END;
