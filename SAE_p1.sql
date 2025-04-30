@@ -219,6 +219,67 @@ END;
 //existante. Renvoyer dans un paramètre de sortie p_error un code spécifique (ex.
 //p_error vaut 1 si membre inexistant, 2 si activité inexistante, 3 déjà inscrit, 4 capacité
 //dépassée…). Tester tous les cas.nd
+create or replace procedure inscrireActivite(numA varchar2, codeM varchar2, dateI date,p_error out number)
+is
+    ActiviteC number;
+    ActiviteN number;
+    test1 varchar2(10);
+    test2 varchar2(10);
+    p_membre EXCEPTION;
+    p_activite EXCEPTION;
+    p_complet EXCEPTION;
+    p_dejaInscrit EXCEPTION;
+begin
+    p_error := 0;
+    begin
+        Select CAPACITE into ActiviteC from S_ACTIVITE WHERE NUMACTIVITE = numA;
+        select count(NUMACTIVITE) into ActiviteN from S_PARTICIPATION where NUMACTIVITE = numA;
+    exception
+        when NO_DATA_FOUND then
+            raise p_activite;
+    end;
+    begin
+        select CODEMEMBRE into test1 from S_MEMBRE WHERE CODEMEMBRE = codeM;
+    exception
+        when NO_DATA_FOUND then
+            raise p_membre;
+    end;
+    select NUMACTIVITE into test2 from S_PARTICIPATION WHERE CODEMEMBRE = codeM AND NUMACTIVITE = numA;
+    if test1 = codeM and test2 = numA then
+        raise p_dejaInscrit;
+    end if;
+    if ActiviteN >= ActiviteC then
+        raise p_complet;
+    end if;
+    
+    
+EXCEPTION
+    when p_activite then
+        p_error := 2;
+    when p_membre then
+        p_error := 1;
+    when p_complet then
+        p_error := 4;
+    when p_dejaInscrit then
+        p_error := 3;
+    when NO_DATA_FOUND then
+        INSERT INTO S_PARTICIPATION VALUES(numA,codeM,dateI);
+end;
+
+
+
+declare
+p_error number;
+p_error1 number;
+p_error2 number;
+begin
+inscrireActivite('ACT001','MEM100',TO_DATE('24/02/23','dd/mm/yy'),p_error);
+DBMS_OUTPUT.PUT_LINE(p_error);
+inscrireActivite('ACT100','MEM001',TO_DATE('24/02/23','dd/mm/yy'),p_error1);
+DBMS_OUTPUT.PUT_LINE(p_error1);
+inscrireActivite('ACT001','MEM001',TO_DATE('24/02/23','dd/mm/yy'),p_error2);
+DBMS_OUTPUT.PUT_LINE(p_error2);
+end;
 
 //10. [SQL] La table S_LOCATION est complétée par une liste de location. Réaliser les
 //insertions à partir du fichier insertComplementLocation.
